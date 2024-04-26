@@ -8,7 +8,7 @@ Le joueur (LINK) se déplace sur une carte sur laquelle il peut croiser des poke
 
 ## Controles :
 - joystick pour se déplacer et déplacer le curseur lors des choix
-- bp1 pour sélectioner et interragir
+- bp1 pour sélectionner et interragir
 - bp2 pour ouvrir le menu
 
 ## Contenu  : 
@@ -36,10 +36,21 @@ Le joueur (LINK) se déplace sur une carte sur laquelle il peut croiser des poke
 
 ## Ressource STM32 utilisées :
 
+### Périphériques
+
+- GPIO pour la lecture des valeurs des boutons et du joystick
+- SAI pour la gestion du son, utilisé avec la bibiliothèque BSP_AUDIO
+- Ecran via la bibliothèque BSP_LCD
+
 ### FreeRTOS 
 
+Utilisation des tâches, des fils d'attentes, interruptions ...
 
+![diagramme](https://github.com/Coline3003/Projet_nintendo/assets/116337158/e114918d-ee91-4907-933f-e5b9c512a4af)
 
+### FATFS
 
+- Lecture des images au format .BMP pour le fond
+- Lecture des fichiers audio au format .WAV
           
           
