@@ -52,5 +52,9 @@ Utilisation des tâches, des fils d'attentes, interruptions ...
 
 - Lecture des images au format .BMP pour le fond
 - Lecture des fichiers audio au format .WAV
-          
+
+## Possibilités d'amélioration/poursuite du projet
+
+- ajout de contenu (pokemons, dresseurs adverses)
+- Ajout d'une communication entre cartes pour faire des combats entre deux joueurs
           
