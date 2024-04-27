@@ -58,3 +58,6 @@ Utilisation des tâches, des fils d'attentes, interruptions ...
 - Ajout de contenu (pokemons, dresseurs adverses)
 - Ajout d'une communication entre cartes pour faire des combats entre deux joueurs
           
+# Lien vers les fichiers à placer dans la carte SD
+
+https://drive.google.com/drive/folders/1-GaNGr_gw7rjtlrhfnCmD15vSxsM8FSb?usp=sharing
