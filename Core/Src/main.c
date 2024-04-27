@@ -137,8 +137,6 @@ UART_HandleTypeDef huart1;
 SDRAM_HandleTypeDef hsdram1;
 SDRAM_HandleTypeDef hsdram2;
 
-osThreadId AffichageHandle;
-osThreadId SDHandle;
 osThreadId Play_wavHandle;
 osThreadId task_Affich_PicHandle;
 osThreadId task_deplacementHandle;
@@ -147,7 +145,6 @@ osThreadId task_DemarrageHandle;
 osThreadId task_combatHandle;
 osThreadId task_deplac_pokHandle;
 osMessageQId WakeUpHandle;
-osMessageQId QueueTS2PICHandle;
 osMessageQId QueueP1toAHandle;
 osMessageQId QueueP2toAHandle;
 osMessageQId QueueP3toAHandle;
@@ -156,7 +153,6 @@ osMessageQId QueueOtoAHandle;
 osMessageQId QueueAtoCHandle;
 osMessageQId QueueCtoAHandle;
 osMessageQId QueueC1toAHandle;
-osMutexId MutexLCDHandle;
 /* USER CODE BEGIN PV */
 
 uint8_t  enable = 0, fin_record = 0,etat = 0;
@@ -185,6 +181,7 @@ uint8_t initZ1=0, initZ2=0, initZ3 = 0, initZ4 = 0, initZ5 = 0;
 uint8_t sector1[512];
 uint32_t Debut = 0;
 uint8_t efficace = 0;
+uint32_t joystick_h, joystick_v;
 /*definition des structures*/
 typedef struct{
 	char nom[15];
@@ -705,10 +702,7 @@ static void MX_DMA2D_Init(void);
 static void MX_SAI2_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_ADC3_Init(void);
-void Affichage_Ecran(void const * argument);
-void StartSD(void const * argument);
 void Play_Wave(void const * argument);
-void Interface_HM(void const * argument);
 void Affichage_Pic(void const * argument);
 void deplac_pok(void const * argument);
 void Demarrage(void const * argument);
@@ -723,10 +717,6 @@ void combat(void const * argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t InCircle(Point xy, Point Circle, uint8_t Radius) {
-	return ((xy.X - Circle.X) * (xy.X - Circle.X)
-			+ (xy.Y - Circle.Y) * (xy.Y - Circle.Y)) <= Radius*Radius;
-}
 
 void SD_Init() {
 	if (f_mount(&SDFatFS, (TCHAR const*) SDPath, 0) != FR_OK) {
@@ -798,9 +788,6 @@ void read_header(){
 	uint32_t bytesread;
 	uint32_t taille_octet;
 
-	float nombre_secondes;
-	float minutes;
-	float secondes;
 
 	//Lecture du nombre d'octets
 	f_lseek(&SDFile,04);
@@ -822,28 +809,11 @@ void read_header(){
 	f_read(&SDFile, (uint8_t*)&data, 4, (void*) &bytesread);
 	Nb_octets_seconde=data;
 
-	nombre_secondes=taille_octet/Nb_octets_seconde;
-	minutes=nombre_secondes/60;
-
-	secondes=((uint32_t)nombre_secondes)%60;
-	//sprintf(duree_total,"%u:%2u",(uint8_t)minutes,(uint8_t)secondes);
 
 	}
 
-void Charge_Wave(uint8_t action){
+void Charge_Wave(uint8_t indice){
 
-	if (action==1){
-		if (indice<MAX_MUSIQUE-1)
-			indice++;
-		else
-			indice=5;
-	}
-	else if (action==0){
-		if (indice>0)
-			indice--;
-		else
-			indice=0;
-	}
 	f_close(&SDFile);
 	f_open(&SDFile, musique[indice], FA_READ);
 	read_header();
@@ -852,6 +822,76 @@ void Charge_Wave(uint8_t action){
 	Bloc_Cursor=0;
 
 }
+
+void ClearEcran(){
+	BSP_LCD_SelectLayer(0);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	BSP_LCD_SelectLayer(1);
+	BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+}
+
+void TextIntro(){
+	char text1[50];
+	BSP_LCD_SelectLayer(0);
+	BSP_LCD_SetFont(&Font16);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+	sprintf(text1, "Le monde est en danger");
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	//mettre un fondu?
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "Toi seul peux le sauver");
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "Pour cela tu dois rassembler la triforce");
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "Ainsi tu pourras retablir" );
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "l'equilibre dans la force" );
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "Pour t'aider dans ta quete,");
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+	BSP_LCD_Clear(LCD_COLOR_WHITE);
+	sprintf(text1, "choisis un pokemon.");
+	BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
+	vTaskDelay(2000);
+}
+
+void AfficheRect(){
+	//affichage rectangle de texte
+	BSP_LCD_DrawRect(1*tailleTuile, 12*tailleTuile-5, 28*tailleTuile, 5*tailleTuile);
+	BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+	BSP_LCD_FillRect(1*tailleTuile+1, 12*tailleTuile+1-5, 28*tailleTuile-1, 5*tailleTuile-1);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+}
+
+void ValJoystick(){
+	//config de la récupération des valeurs du joystick
+	ADC_ChannelConfTypeDef sConfig = { 0 };
+	sConfig.Rank = ADC_REGULAR_RANK_1;
+	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+	//recuperation valeur joystick
+	sConfig.Channel = ADC_CHANNEL_8;
+	HAL_ADC_ConfigChannel(&hadc3, &sConfig);
+	HAL_ADC_Start(&hadc3);
+	while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
+		;
+	joystick_v = HAL_ADC_GetValue(&hadc3);
+
+	HAL_ADC_Start(&hadc1);
+	while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
+		;
+	joystick_h = HAL_ADC_GetValue(&hadc1);
+}
+
 
 /* USER CODE END 0 */
 
@@ -927,8 +967,6 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_MUTEX */
 	/* add mutexes, ... */
-		 osMutexDef(MutexLCD);
-		 MutexLCDHandle = osMutexCreate(osMutex(MutexLCD));
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -943,9 +981,7 @@ int main(void)
   /* definition and creation of WakeUp */
   osMessageQDef(WakeUp, 1, uint8_t);
   WakeUpHandle = osMessageCreate(osMessageQ(WakeUp), NULL);
-  /* definition and creation of QueueTS2PIC */
-  osMessageQDef(QueueTS2PIC, 2, uint16_t);
-  QueueTS2PICHandle = osMessageCreate(osMessageQ(QueueTS2PIC), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
 	/* add queues, ... */
   /* definition and creation of QueueActivation */
@@ -972,13 +1008,6 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* definition and creation of Affichage */
-  osThreadDef(Affichage, Affichage_Ecran, osPriorityIdle, 0, 128);
-  AffichageHandle = osThreadCreate(osThread(Affichage), NULL);
-
-  /* definition and creation of SD */
-  osThreadDef(SD, StartSD, osPriorityHigh, 0, 512);
-  SDHandle = osThreadCreate(osThread(SD), NULL);
 
   /* definition and creation of Play_wav */
   osThreadDef(Play_wav, Play_Wave, osPriorityHigh, 0, 256);
@@ -1008,8 +1037,6 @@ int main(void)
    task_combatHandle = osThreadCreate(osThread(task_combat), NULL);
    vTaskSuspend(task_combatHandle);
    vTaskSuspend(Play_wavHandle);
-   vTaskSuspend(AffichageHandle);
-   vTaskSuspend(SDHandle);
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -1898,190 +1925,6 @@ void BSP_AUDIO_OUT_HalfTransfer_CallBack(void){
 }
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_Affichage_Ecran */
-/**
-  * @brief  Function implementing the Affichage thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_Affichage_Ecran */
-void Affichage_Ecran(void const * argument)
-{
-  /* USER CODE BEGIN 5 */
-	/* Infinite loop */
-	static TS_StateTypeDef TS_State;
-
-	char titre[20];
-	uint8_t volume = 200;
-
-
-//	VP.X=VOLUME_PLUS_X;
-//	VP.Y=VOLUME_PLUS_Y;
-//
-//	VM.X=VOLUME_MOINS_X;
-//	VM.Y=VOLUME_MOINS_Y;
-
-	char timer[11];
-	while (enable==0);
-	osDelay(500);
-	//Charge_Wave(1);
-	BSP_AUDIO_IN_SetVolume(volume);
-	f_open(&SDFile, musique[0], FA_READ);
-	read_header();
-	Audio_Init(freq_audio);
-	f_lseek(&SDFile, 44);
-	Bloc_Cursor=0;
-	for (;;) {/*
-
-		BSP_TS_GetState(&TS_State);
-		if (TS_State.touchDetected) {
-			Touch.X = TS_State.touchX[0];
-			Touch.Y = TS_State.touchY[0];
-		}else{
-			Touch.X = 0;
-			Touch.Y = 0;
-		}
-		switch (etat) {
-			case 0:
-				indice=-1;
-				BSP_AUDIO_OUT_Pause();
-				if (InCircle(Touch, ON_BUTTON, R)){
-					etat=1;
-					DrawOFFButton();
-					DrawPlayButton(LCD_COLOR_BLUE);
-					DrawPauseButton(LCD_COLOR_RED);
-					DrawDebutButton();
-					DrawAvanceButton();
-					DrawReculeButton();
-					Charge_Wave(1);
-				}
-				break;
-
-			case 1:
-				BSP_AUDIO_OUT_Resume();
-				BSP_AUDIO_IN_SetVolume(volume);
-				sprintf(titre,"%s",musique[indice]);
-				sprintf(timer,"%s/%s",duree_actuelle,duree_total);
-
-				BSP_LCD_SetBackColor(LCD_COLOR_BLACK);
-				BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-				BSP_LCD_DisplayStringAt(BSP_LCD_GetXSize()/20, BSP_LCD_GetYSize() - 20, (uint8_t*)musique[indice], LEFT_MODE);
-
-				BSP_LCD_SetBackColor(LCD_COLOR_BLACK);
-				BSP_LCD_SetTextColor(LCD_COLOR_BLUE);
-				BSP_LCD_DisplayStringAt(BSP_LCD_GetXSize()/2, BSP_LCD_GetYSize() - 20, (uint8_t*)timer, LEFT_MODE);
-
-				if (InCircle(Touch, OFF_BUTTON, R/2)){
-					etat=0;
-					DrawONButton();
-					f_close(&SDFile);
-				}
-				if (InCircle(Touch, PAUSE_BUTTON, R)){
-					etat=2;
-					DrawOFFButton();
-					DrawPlayButton(LCD_COLOR_RED);
-					DrawPauseButton(LCD_COLOR_BLUE);
-					DrawDebutButton();
-					DrawAvanceButton();
-					DrawReculeButton();
-//					DrawVPButton();
-//					DrawVMButton();
-				}
-				if (InCircle(Touch,AVANCEBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(1);
-				}
-				if (InCircle(Touch,RECULEBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(0);
-				}
-				if (InCircle(Touch,DEBUTBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(2);
-				}
-				if (InCircle(Touch,VP,R/2)){
-					if (volume<100)
-						volume = volume + 10;
-				}
-				if (InCircle(Touch,VP,R/2)){
-					if (volume>0)
-						volume = volume - 10;
-				}
-				break;
-
-			case 2:
-				BSP_AUDIO_OUT_Pause();
-				sprintf(titre,"%s",musique[indice]);
-				sprintf(timer,"%s/%s",duree_actuelle,duree_total);
-
-				BSP_LCD_SetBackColor(LCD_COLOR_BLACK);
-				BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-				BSP_LCD_DisplayStringAt(BSP_LCD_GetXSize()/20, BSP_LCD_GetYSize() - 20, (uint8_t*)musique[indice], LEFT_MODE);
-				BSP_LCD_SetBackColor(LCD_COLOR_BLACK);
-				BSP_LCD_SetTextColor(LCD_COLOR_RED);
-				BSP_LCD_DisplayStringAt(BSP_LCD_GetXSize()/2, BSP_LCD_GetYSize() - 20, (uint8_t*)timer, LEFT_MODE);
-
-				if (InCircle(Touch, OFF_BUTTON, R/2)){
-					etat=0;
-					DrawONButton();
-					f_close(&SDFile);
-				}
-				if (InCircle(Touch, PLAY_BUTTON, R)){
-					etat=1;
-					DrawOFFButton();
-					DrawPlayButton(LCD_COLOR_BLUE);
-					DrawPauseButton(LCD_COLOR_RED);
-					DrawDebutButton();
-					DrawAvanceButton();
-					DrawReculeButton();
-//					DrawVPButton();
-//					DrawVMButton();
-				}
-				if (InCircle(Touch,AVANCEBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(1);
-					etat=1;
-				}
-				if (InCircle(Touch,RECULEBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(0);
-					etat=1;
-				}
-				if (InCircle(Touch,DEBUTBUTTON,R)){
-					f_close(&SDFile);
-					Charge_Wave(2);
-					etat=1;
-				}
-				break;
-
-			}*/
-
-		vTaskDelay(100);
-	}
-  /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_StartSD */
-/**
-* @brief Function implementing the SD thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartSD */
-void StartSD(void const * argument)
-{
-  /* USER CODE BEGIN StartSD */
-	SD_Init();
-	enable = 1;
-	vTaskDelete(SDHandle);
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-  }
-  /* USER CODE END StartSD */
-}
-
 /* USER CODE BEGIN Header_Play_Wave */
 /**
 * @brief Function implementing the Play_wav thread.
@@ -2095,9 +1938,6 @@ void Play_Wave(void const * argument)
 	char i;
 	uint32_t bytesread;
 	uint32_t taille_octet;
-	float nombre_secondes;
-	float minutes;
-	float secondes;
 	  /* Infinite loop */
 	  for(;;)
 	  {
@@ -2114,10 +1954,6 @@ void Play_Wave(void const * argument)
 			 f_read(&SDFile, ((uint8_t*)AUDIO_BUFFER_OUT), AUDIO_BLOCK_SIZE,(void*) &bytesread);
 
 			  taille_octet=512*Bloc_Cursor;
-			  nombre_secondes=taille_octet/Nb_octets_seconde;
-			  	minutes=nombre_secondes/60;
-			  	secondes=((uint32_t)nombre_secondes)%60;
-			  	//sprintf(duree_actuelle,"%u:%2u",(uint8_t)minutes,(uint8_t)secondes);
 
 		  }
 		  else{
@@ -2132,10 +1968,7 @@ void Play_Wave(void const * argument)
 			 f_read(&SDFile, ((uint8_t*)AUDIO_BUFFER_OUT+AUDIO_BLOCK_SIZE), AUDIO_BLOCK_SIZE,(void*) &bytesread);
 
 			  taille_octet=512*Bloc_Cursor;
-			  nombre_secondes=taille_octet/Nb_octets_seconde;
-			  minutes=nombre_secondes/60;
-			  secondes=((uint32_t)nombre_secondes)%60;
-			  //sprintf(duree_actuelle,"%u:%2u",(uint8_t)minutes,(uint8_t)secondes);
+
 
 		  }
 	  }
@@ -2153,11 +1986,7 @@ void Affichage_Pic(void const * argument)
   /* USER CODE BEGIN Affichage_Pic */
 	//action a faire au debut (eventuellement a deplacer dans fct demarrage)
 	//spritePoke[0] = evoli2_bmp[];
-	BSP_LCD_SelectLayer(0);
-	BSP_LCD_Clear(LCD_COLOR_WHITE);
-	BSP_LCD_SelectLayer(1);
-	BSP_LCD_SetTransparency(1,0);
-	BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+	ClearEcran();
 
 	char text1[50] = { };
 	uint8_t phaseCombat = 0;
@@ -2166,10 +1995,7 @@ void Affichage_Pic(void const * argument)
 	curseur.y = 13;
 	curseur.rad = 3;
 
-	uint8_t str[30];
-
-
-		Pokemon p[3];
+	Pokemon p[3];
 	/* Infinite loop */
 	for (;;) {
 
@@ -2266,7 +2092,6 @@ void Affichage_Pic(void const * argument)
 
 			BSP_LCD_SelectLayer(1);
 			BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
-			//BSP_LCD_SetLayerWindow(1,joueur.x*tailleTuile,joueur.y*tailleTuile,30,32);
 			BSP_LCD_SetTransparency(1,255);
 			BSP_LCD_DrawBitmap(joueur.x*tailleTuile,joueur.y*tailleTuile, (uint8_t*)spriteJoueur[joueur.sprite]);
 
@@ -2304,11 +2129,7 @@ void Affichage_Pic(void const * argument)
 			sprintf(text1, "%s niveau : %d", pokemonAdverse.nom, pokemonAdverse.niveau);
 			BSP_LCD_DisplayStringAt(16*tailleTuile,7*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 
-			//affichage rectangle de texte
-			BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 4*tailleTuile);
-			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-			BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 4*tailleTuile-1);
-			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+			AfficheRect();
 
 			xQueueReceive(QueueCtoAHandle, &phaseCombat, 0);
 			if(phaseCombat == 0){
@@ -2402,10 +2223,7 @@ void Affichage_Pic(void const * argument)
 			}
 			if(phaseCombat == 9){ //fin du jeu
 				vTaskDelete(task_combatHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				BSP_LCD_SelectLayer(0);
 				BSP_LCD_SetFont(&Font16);
 				BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
@@ -2769,13 +2587,7 @@ void deplac_pok(void const * argument)
 void deplacement(void const * argument)
 {
   /* USER CODE BEGIN deplacement */
-	uint32_t joystick_h, joystick_v;
 	Pokemon *p;
-	uint8_t messageD;
-	uint8_t str[30];
-	ADC_ChannelConfTypeDef sConfig = { 0 };
-	sConfig.Rank = ADC_REGULAR_RANK_1;
-	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
 	uint8_t sac = 0;
 	char text1[50] = { };
 	Curseur c;
@@ -2783,17 +2595,15 @@ void deplacement(void const * argument)
 	c.y = 2;
 	c.rad = 3;
 	uint8_t nbfrag = 0;
+
+	//fonction pour selectionner le pokemon dans l'équipe
 	void selectPoke(){
 		c.x = 2;
 		c.y = 13;
 		vTaskDelay(500);
 		while(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) != 0){
 			vTaskDelay(50);
-			//affichage rectangle de texte
-			BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-			BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+			AfficheRect();
 			sprintf(text1, "Ou le placer?");
 			BSP_LCD_DisplayStringAt(8*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 			sprintf(text1, "%s %d/%d", joueur.pokemon1.nom, joueur.pokemon1.PV, joueur.pokemon1.PVMAX );
@@ -2806,79 +2616,45 @@ void deplacement(void const * argument)
 			BSP_LCD_DisplayStringAt(15*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 			BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, curseur.rad);
 
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
-
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+			ValJoystick();
 
 			//deplacement du curseur
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && c.x == 15){
 				c.x = 2; //gauche
-
 			}
 			else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && c.x == 2	){
 				c.x = 15; //droite
 			}
 			else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 13){
 				c.y = 14; //bas
-
 			}
 			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 14){
 				c.y = 13; //haut
 			}
 		}
 	}
+
+	//fonction pour intervertir deux pokemons
 	void swap(Pokemon *ptr1, Pokemon *ptr2) {
 	    Pokemon temp = *ptr1; // Stocker la valeur pointée par ptr1 dans une variable temporaire
 	    *ptr1 = *ptr2; // Copier la valeur pointée par ptr2 dans ptr1
 	    *ptr2 = temp; // Copier la valeur temporaire dans ptr2
 	}
-	int i,j;
-	strcpy(joueur.objet[0].nom, "Potion");
-	strcpy(joueur.objet[1].nom, "/0");
-	strcpy(joueur.objet[3].nom, "Potion");
+
+	int i;
+
 	/* Infinite loop */
 	for (;;) {
 
-		//recuperation données joystick
-		sConfig.Channel = ADC_CHANNEL_8;
-		HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-		HAL_ADC_Start(&hadc3);
-		while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-			;
-		joystick_v = HAL_ADC_GetValue(&hadc3);
-
-		HAL_ADC_Start(&hadc1);
-		while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-			;
-		joystick_h = HAL_ADC_GetValue(&hadc1);
-
+		ValJoystick();
 
 		if(HAL_GPIO_ReadPin(BP2_GPIO_Port, BP2_Pin) == 0 || sac == 1){//ouverture du sac
-			j=2;
+
 			sac = 1;
 			vTaskSuspend(task_deplac_pokHandle);
 			vTaskSuspend(task_Affich_PicHandle);
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			//recuperation données joystick
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
 
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+			ValJoystick();
 
 			//affichage rectangle de texte
 			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
@@ -2894,28 +2670,17 @@ void deplacement(void const * argument)
 
 			if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 2){
 				c.y +=1; //bas
-
 			}
 			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 3){
 				c.y -=1; //haut
 			}
 
 			if(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) == 0){
-				if (c.y == 2){
+				if (c.y == 2){//Selection objets
 					vTaskDelay(500);
 					while(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) != 0){
-						//recuperation données joystick
-						sConfig.Channel = ADC_CHANNEL_8;
-						HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-						HAL_ADC_Start(&hadc3);
-						while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-							;
-						joystick_v = HAL_ADC_GetValue(&hadc3);
 
-						HAL_ADC_Start(&hadc1);
-						while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-							;
-						joystick_h = HAL_ADC_GetValue(&hadc1);
+						ValJoystick();
 						vTaskDelay(50);
 						//affichage rectangle de texte
 						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
@@ -2925,13 +2690,10 @@ void deplacement(void const * argument)
 						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
 						sprintf(text1, "Objets");
 						BSP_LCD_DisplayStringAt(1*tailleTuile,1*tailleTuile, (uint8_t*) text1, LEFT_MODE);
-						//affichage des objets //BUG AFFICHAGE A FIXER
+						//affichage des objets
 						for(i = 0;i<10;i++){
-							//if(strcmp(joueur.objet[i].nom,"/0")!= 0){
-								sprintf(text1, "%s", joueur.objet[i].nom);
-								BSP_LCD_DisplayStringAt(2*tailleTuile,(i+2)*tailleTuile, (uint8_t*) text1, LEFT_MODE);
-
-							//}
+							sprintf(text1, "%s", joueur.objet[i].nom);
+							BSP_LCD_DisplayStringAt(2*tailleTuile,(i+2)*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 
 						}
 						sprintf(text1, "Sortir");
@@ -2939,7 +2701,6 @@ void deplacement(void const * argument)
 						BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, c.rad);
 						if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  c.y < 12){
 							c.y +=1; //bas
-
 						}
 						else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  c.y > 2){
 							c.y -=1; //haut
@@ -2960,11 +2721,7 @@ void deplacement(void const * argument)
 							c.y = 13;
 							while(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) != 0){
 								vTaskDelay(50);
-								//affichage rectangle de texte
-								BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-								BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-								BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-								BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+								AfficheRect();
 								sprintf(text1, "Quel pokemon soigner?");
 								BSP_LCD_DisplayStringAt(8*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 								sprintf(text1, "%s %d/%d", joueur.pokemon1.nom, joueur.pokemon1.PV, joueur.pokemon1.PVMAX );
@@ -2977,30 +2734,17 @@ void deplacement(void const * argument)
 								BSP_LCD_DisplayStringAt(15*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 								BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, curseur.rad);
 
-								//recuperation valeur joystick
-								sConfig.Channel = ADC_CHANNEL_8;
-								HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-								HAL_ADC_Start(&hadc3);
-								while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-									;
-								joystick_v = HAL_ADC_GetValue(&hadc3);
-
-								HAL_ADC_Start(&hadc1);
-								while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-									;
-								joystick_h = HAL_ADC_GetValue(&hadc1);
+								ValJoystick();
 
 								//deplacement du curseur
 								if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && c.x == 15){
 									c.x = 2; //gauche
-
 								}
 								else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && c.x == 2	){
 									c.x = 15; //droite
 								}
 								else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 13){
 									c.y = 14; //bas
-
 								}
 								else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 14){
 									c.y = 13; //haut
@@ -3022,11 +2766,7 @@ void deplacement(void const * argument)
 								joueur.pokemon4.PV = joueur.pokemon4.PVMAX;
 							}
 
-							//affichage rectangle de texte
-							BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-							BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-							BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-							BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+							AfficheRect();
 							sprintf(text1, "%s %d/%d", joueur.pokemon1.nom, joueur.pokemon1.PV, joueur.pokemon1.PVMAX );
 							BSP_LCD_DisplayStringAt(2*tailleTuile,13*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 							sprintf(text1, "%s %d/%d", joueur.pokemon2.nom, joueur.pokemon2.PV, joueur.pokemon2.PVMAX);
@@ -3058,11 +2798,7 @@ void deplacement(void const * argument)
 					vTaskDelay(500);
 					while(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) != 0){
 						vTaskDelay(50);
-						//affichage rectangle de texte
-						BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-						BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-						BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+						AfficheRect();
 						sprintf(text1, "Quel pokemon deplacer?");
 						BSP_LCD_DisplayStringAt(8*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						sprintf(text1, "%s %d/%d", joueur.pokemon1.nom, joueur.pokemon1.PV, joueur.pokemon1.PVMAX );
@@ -3075,30 +2811,17 @@ void deplacement(void const * argument)
 						BSP_LCD_DisplayStringAt(15*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, curseur.rad);
 
-						//recuperation valeur joystick
-						sConfig.Channel = ADC_CHANNEL_8;
-						HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-						HAL_ADC_Start(&hadc3);
-						while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-							;
-						joystick_v = HAL_ADC_GetValue(&hadc3);
-
-						HAL_ADC_Start(&hadc1);
-						while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-							;
-						joystick_h = HAL_ADC_GetValue(&hadc1);
+						ValJoystick();
 
 						//deplacement du curseur
 						if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && c.x == 15){
 							c.x = 2; //gauche
-
 						}
 						else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && c.x == 2	){
 							c.x = 15; //droite
 						}
 						else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 13){
 							c.y = 14; //bas
-
 						}
 						else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  c.y == 14){
 							c.y = 13; //haut
@@ -3132,11 +2855,7 @@ void deplacement(void const * argument)
 							swap(p, &joueur.pokemon4);
 						}
 
-						//affichage rectangle de texte
-						BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-						BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-						BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+						AfficheRect();
 						sprintf(text1, "Ou le placer?");
 						BSP_LCD_DisplayStringAt(8*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						sprintf(text1, "%s %d/%d", joueur.pokemon1.nom, joueur.pokemon1.PV, joueur.pokemon1.PVMAX );
@@ -3162,7 +2881,7 @@ void deplacement(void const * argument)
 
 		}
 		else{
-			//mouvement en fonction des donnée (envoie dans une file d'attente vers affichage)
+			//mouvement en fonction des données (envoie dans une file d'attente vers affichage)
 
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500){
 				joueur.x -= 1; //gauche
@@ -3205,11 +2924,7 @@ void deplacement(void const * argument)
 
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3220,11 +2935,7 @@ void deplacement(void const * argument)
 
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3234,11 +2945,7 @@ void deplacement(void const * argument)
 				joueur.zone = 2;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3248,11 +2955,7 @@ void deplacement(void const * argument)
 				joueur.zone = 3;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3262,11 +2965,7 @@ void deplacement(void const * argument)
 				joueur.zone = 4;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3276,11 +2975,7 @@ void deplacement(void const * argument)
 				joueur.zone = 3;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3290,11 +2985,7 @@ void deplacement(void const * argument)
 				joueur.zone = 5;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3304,11 +2995,7 @@ void deplacement(void const * argument)
 				joueur.zone = 4;
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_SetTransparency(1,0);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(500);
 				vTaskResume(task_chgZoneHandle);
 				vTaskSuspend(task_deplacementHandle);
@@ -3319,11 +3006,7 @@ void deplacement(void const * argument)
 				vTaskSuspend(task_deplac_pokHandle);
 				vTaskSuspend(task_Affich_PicHandle);
 				BSP_LCD_SelectLayer(0);
-				//affichage rectangle de texte
-				BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-				BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-				BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-				BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+				AfficheRect();
 				Objet objet;
 				if(carte[joueur.x][joueur.y]==2){
 					strcpy(objet.nom, "Potion");
@@ -3347,11 +3030,7 @@ void deplacement(void const * argument)
 					vTaskSuspend(task_deplac_pokHandle);
 					vTaskSuspend(task_Affich_PicHandle);
 					BSP_LCD_SelectLayer(0);
-					//affichage rectangle de texte
-					BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-					BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-					BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-					BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+					AfficheRect();
 					sprintf(text1, "Sac plein");
 					BSP_LCD_DisplayStringAt(8*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 					vTaskDelay(1000);
@@ -3409,25 +3088,9 @@ void deplacement(void const * argument)
 					c.x = 2;
 					c.y = 15;
 					while(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) != 0){
-						//recuperation données joystick
-						sConfig.Channel = ADC_CHANNEL_8;
-						HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-						HAL_ADC_Start(&hadc3);
-						while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-							;
-						joystick_v = HAL_ADC_GetValue(&hadc3);
-
-						HAL_ADC_Start(&hadc1);
-						while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-							;
-						joystick_h = HAL_ADC_GetValue(&hadc1);
+						ValJoystick();
 						vTaskDelay(50);
-						//affichage rectangle de texte
-						//affichage rectangle de texte
-						BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-						BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-						BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+						AfficheRect();
 						sprintf(text1, "Voulez vous placez les fragaments?");
 						BSP_LCD_DisplayStringAt(1*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						sprintf(text1, "Oui");
@@ -3439,31 +3102,21 @@ void deplacement(void const * argument)
 						//deplacement du curseur
 						if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && c.x == 15){
 							c.x = 2; //gauche
-
 						}
 						else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && c.x == 2	){
 							c.x = 15; //droite
 						}
 					}
 					if(c.x == 2){//lancement du combat de boss
-						//affichage rectangle de texte
-						BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-						BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-						BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+						AfficheRect();
 						sprintf(text1, "Vous sentez une presence...");
 						BSP_LCD_DisplayStringAt(1*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						vTaskDelay(2000);
-						//affichage rectangle de texte
-						BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-						BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-						BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-						BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+						AfficheRect();
 						sprintf(text1, "...malefique");
 						BSP_LCD_DisplayStringAt(1*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 						vTaskDelay(2000);
 						Pokemon boss = pokeInit(8,12);
-						//pokemon adverse pour le combat
 						pokemonAdverse = boss;
 						joueur.zonePred = joueur.zone;
 						joueur.zone = 0; //zone de combat
@@ -3472,11 +3125,7 @@ void deplacement(void const * argument)
 
 				}
 				else{
-					//affichage rectangle de texte
-					BSP_LCD_DrawRect(1*tailleTuile, 13*tailleTuile-5, 28*tailleTuile, 3*tailleTuile);
-					BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-					BSP_LCD_FillRect(1*tailleTuile+1, 13*tailleTuile+1-5, 28*tailleTuile-1, 3*tailleTuile-1);
-					BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+					AfficheRect();
 					sprintf(text1, "Vous n'avez pas trouve tous les fragments");
 					BSP_LCD_DisplayStringAt(1*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
 					vTaskDelay(2000);
@@ -3486,11 +3135,6 @@ void deplacement(void const * argument)
 				vTaskResume(task_Affich_PicHandle);
 			}
 		}
-
-
-
-		//xQueueSend(QueueDtoAHandle, &joueur, 0);
-
 
 		osDelay(100);
 		}
@@ -3509,11 +3153,7 @@ void combat(void const * argument)
   /* USER CODE BEGIN combat */
 	uint8_t phaseCombat=0;
 	char text1[50] = { };
-	BSP_LCD_SelectLayer(0);
-	BSP_LCD_Clear(LCD_COLOR_WHITE);
-	BSP_LCD_SelectLayer(1);
-	BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
-	uint8_t str[30];
+	ClearEcran();
 	if(joueur.pokemon1.PV > 0){
 		joueur.pokemonSelect = &joueur.pokemon1;
 	}
@@ -3529,27 +3169,20 @@ void combat(void const * argument)
 	vTaskSuspend(Play_wavHandle);
 	BSP_AUDIO_OUT_Pause();
 	chgEcran(5);
-	f_open(&SDFile, musique[2], FA_READ);
-	read_header();
-	Audio_Init(freq_audio);
-	f_lseek(&SDFile, 44);
-	Bloc_Cursor=0;
+	Charge_Wave(2);
 	BSP_AUDIO_OUT_Resume();
 	vTaskResume(Play_wavHandle);
 	vTaskResume(task_Affich_PicHandle);
 	vTaskSuspend(task_deplacementHandle);
 	vTaskSuspend(task_deplac_pokHandle);
 	Pokemon p;
-	//joueur.pokemon2 = pokeInit(0,5);
-	uint32_t joystick_h, joystick_v;
-	ADC_ChannelConfTypeDef sConfig = { 0 };
-	sConfig.Rank = ADC_REGULAR_RANK_1;
-	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+
 	xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
-	//phase 2 : le poke adverse attaque
+
 	uint8_t phase1_fini = 0;
 	uint8_t phase2_fini = 0;
-
+	curseur.x = 2;
+	curseur.y = 13;
 
 	/* Infinite loop */
 	for (;;) {
@@ -3558,37 +3191,23 @@ void combat(void const * argument)
 		if(phaseCombat == 0){
 			phase1_fini = 0;
 			phase2_fini = 0;
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
 
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+			ValJoystick();
 
 			//deplacement du curseur
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 15){
 				curseur.x = 2; //gauche
-
 			}
 			else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 2	){
 				curseur.x = 15; //droite
 			}
 			else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 13){
 				curseur.y = 14; //bas
-
 			}
 			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 14){
 				curseur.y = 13; //haut
 			}
 
-
-			//xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 			//validation du choix de l'attaque
 			if(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) == 0){
 				//choix de l'attaque adverse (a completer)
@@ -3648,11 +3267,9 @@ void combat(void const * argument)
 		//PHASE 1 (Joueur attaque adverse)
 		if(phaseCombat == 1){
 			xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
-			//HAL_Delay(2000);
 			vTaskDelay(2000);
 			efficace = degatAttaque(joueur.pokemonSelect,&pokemonAdverse); //p1 attaque p2
 
-			//a modifier (0 si phase 2 s'est deja executer sinon phase 2)
 			if(pokemonAdverse.PV <=0){ //si le poke adverse a ete mis KO => fin de combat
 				phaseCombat = 3;
 				pokemonAdverse.PV = 0;
@@ -3693,8 +3310,8 @@ void combat(void const * argument)
 			efficace = 0;
 			xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 		}
-
-		if(phaseCombat == 3){//defaite du pokemon adverse
+		//PHASE 3 defaite du pokemon adverse
+		if(phaseCombat == 3){
 
 			//attribution de l'XP
 			joueur.pokemonSelect->EXP += pokemonAdverse.niveau;
@@ -3715,12 +3332,8 @@ void combat(void const * argument)
 
 			if(joueur.zonePred == 5){
 				phaseCombat = 9;
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				vTaskDelay(200);
-
 				xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 			}
 			else{
@@ -3729,10 +3342,10 @@ void combat(void const * argument)
 				curseur.y = 14;
 				xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 			}
-
 		}
 
-		if(phaseCombat == 4){//defaite du pokemon
+		// PHASE 4 defaite du pokemon
+		if(phaseCombat == 4){
 			vTaskDelay(2000);
 			if(joueur.pokemon1.PV > 0){
 				joueur.pokemonSelect = &joueur.pokemon1;
@@ -3743,7 +3356,7 @@ void combat(void const * argument)
 			else if(joueur.pokemon3.PV > 0){
 				joueur.pokemonSelect = &joueur.pokemon3;
 			}
-			else if(joueur.pokemon3.PV > 0){
+			else if(joueur.pokemon4.PV > 0){
 				joueur.pokemonSelect = &joueur.pokemon4;
 			}
 			else{
@@ -3756,10 +3369,7 @@ void combat(void const * argument)
 				vTaskSuspend(task_deplacementHandle);
 				vTaskSuspend(task_Affich_PicHandle);
 
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				BSP_LCD_SelectLayer(0);
 				vTaskDelay(1000);
 				BSP_LCD_SetFont(&Font24);
@@ -3773,36 +3383,24 @@ void combat(void const * argument)
 			xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 		}
 
-		if(phaseCombat == 6){ //changement de poke
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
+		//PHASE 6 changement de poke
+		if(phaseCombat == 6){
 
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+			ValJoystick();
 
 			//deplacement du curseur
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 15){
 				curseur.x = 2; //gauche
-
 			}
 			else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 2	){
 				curseur.x = 15; //droite
 			}
 			else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 13){
 				curseur.y = 14; //bas
-
 			}
 			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 14){
 				curseur.y = 13; //haut
 			}
-
 
 			if(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) == 0){
 				if(curseur.x ==2 && curseur.y == 13){
@@ -3833,25 +3431,14 @@ void combat(void const * argument)
 			xQueueSend(QueueCtoAHandle, &phaseCombat, 0);
 		}
 
-		if(phaseCombat == 7){ //capturer le poke?
+		//PHASE 7 capturer le poke?
+		if(phaseCombat == 7){
 
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
-
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+			ValJoystick();
 
 			//deplacement du curseur
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 15){
 				curseur.x = 2; //gauche
-
 			}
 			else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 2	){
 				curseur.x = 15; //droite
@@ -3868,10 +3455,7 @@ void combat(void const * argument)
 				else{
 					joueur.zone = joueur.zonePred;
 					vTaskSuspend(task_Affich_PicHandle);
-					BSP_LCD_SelectLayer(0);
-					BSP_LCD_Clear(LCD_COLOR_WHITE);
-					BSP_LCD_SelectLayer(1);
-					BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+					ClearEcran();
 					BSP_LCD_SelectLayer(0);
 					vTaskDelay(500);
 
@@ -3889,11 +3473,7 @@ void combat(void const * argument)
 					if(joueur.zone == 4){
 						chgEcran(8);
 					}
-					f_open(&SDFile, musique[1], FA_READ);
-					read_header();
-					Audio_Init(freq_audio);
-					f_lseek(&SDFile, 44);
-					Bloc_Cursor=0;
+					Charge_Wave(1);
 					BSP_AUDIO_OUT_Resume();
 					vTaskResume(Play_wavHandle);
 					vTaskResume(task_Affich_PicHandle);
@@ -3904,31 +3484,19 @@ void combat(void const * argument)
 			}
 		}
 
-		if(phaseCombat == 8){//choisir le poke a remplacer
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
-
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+		// PHASE 8 choisir le poke a remplacer
+		if(phaseCombat == 8){
+			ValJoystick();
 
 			//deplacement du curseur
 			if(joystick_h>3500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 15){
 				curseur.x = 2; //gauche
-
 			}
 			else if(joystick_h<1500 && joystick_v<3500 && joystick_v>1500 && curseur.x == 2	){
 				curseur.x = 15; //droite
 			}
 			else if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 13){
 				curseur.y = 14; //bas
-
 			}
 			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 &&  curseur.y == 14){
 				curseur.y = 13; //haut
@@ -3953,10 +3521,7 @@ void combat(void const * argument)
 				}
 				joueur.zone = joueur.zonePred;
 				vTaskSuspend(task_Affich_PicHandle);
-				BSP_LCD_SelectLayer(0);
-				BSP_LCD_Clear(LCD_COLOR_WHITE);
-				BSP_LCD_SelectLayer(1);
-				BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
+				ClearEcran();
 				BSP_LCD_SelectLayer(0);
 				vTaskDelay(500);
 
@@ -3974,11 +3539,7 @@ void combat(void const * argument)
 				if(joueur.zone == 4){
 					chgEcran(8);
 				}
-				f_open(&SDFile, musique[1], FA_READ);
-				read_header();
-				Audio_Init(freq_audio);
-				f_lseek(&SDFile, 44);
-				Bloc_Cursor=0;
+				Charge_Wave(1);
 				BSP_AUDIO_OUT_Resume();
 				vTaskResume(Play_wavHandle);
 				vTaskResume(task_Affich_PicHandle);
@@ -3987,12 +3548,7 @@ void combat(void const * argument)
 				vTaskDelete(task_combatHandle);
 			}
 
-
 		}
-
-
-
-
 
 		osDelay(20);
 		}
@@ -4010,222 +3566,156 @@ void Demarrage(void const * argument)
 {
   /* USER CODE BEGIN Demarrage */
 	/* USER CODE BEGIN Demarrage */
-	BSP_LCD_SelectLayer(0);
-	BSP_LCD_Clear(LCD_COLOR_WHITE);
-	BSP_LCD_SelectLayer(1);
-	BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
-		vTaskSuspend(task_deplac_pokHandle);
-		vTaskSuspend(task_deplacementHandle);
-		vTaskSuspend(task_Affich_PicHandle);
-		vTaskDelete(task_combatHandle);
-		vTaskSuspend(task_chgZoneHandle);
-		vTaskDelay(100);
-		uint8_t str[30];
-		int i;
-		for (i=0; i<9; i++){
-			objetTrouves[i] = 0;
-			strcpy(joueur.objet[i].nom , "\0");
+	ClearEcran();
+	vTaskSuspend(task_deplac_pokHandle);
+	vTaskSuspend(task_deplacementHandle);
+	vTaskSuspend(task_Affich_PicHandle);
+	vTaskDelete(task_combatHandle);
+	vTaskSuspend(task_chgZoneHandle);
+	vTaskDelay(100);
+
+	uint8_t str[30];
+
+	//Reset des objets du joueur
+	int i;
+	for (i=0; i<9; i++){
+		objetTrouves[i] = 0;
+		strcpy(joueur.objet[i].nom , "\0");
+	}
+
+	uwInternelBuffer = (uint8_t*) 0xC0260000;
+	uwInternelBuffer2 = (uint8_t*) 0xC0360000;
+
+
+	uint8_t counter;
+
+	/*##- Initialize the Directory Files pointers (heap) ###################*/
+	for (counter = 0; counter < MAX_BMP_FILES; counter++) {
+		pDirectoryFiles[counter] = malloc(MAX_BMP_FILE_NAME);
+		if (pDirectoryFiles[counter] == NULL) {
+			/* Set the Text Color */
+			BSP_LCD_SetTextColor(LCD_COLOR_RED);
+
+			BSP_LCD_DisplayStringAtLine(8,
+					(uint8_t*) "  Cannot allocate memory ");
+
+			while (1) {
+			}
 		}
 
-		uwInternelBuffer = (uint8_t*) 0xC0260000;
-		uwInternelBuffer2 = (uint8_t*) 0xC0360000;
-		uint8_t counter;
-		//vTaskSuspend(Play_wavHandle);
-		/*##-1- Link the SD Card disk I/O driver ###################################*/
-		//if (FATFS_LinkDriver(&SD_Driver, SDPath) == 0) {
-			/*##-2- Initialize the Directory Files pointers (heap) ###################*/
-			for (counter = 0; counter < MAX_BMP_FILES; counter++) {
-				pDirectoryFiles[counter] = malloc(MAX_BMP_FILE_NAME);
-				if (pDirectoryFiles[counter] == NULL) {
-					/* Set the Text Color */
-					BSP_LCD_SetTextColor(LCD_COLOR_RED);
+	}
 
-					BSP_LCD_DisplayStringAtLine(8,
-							(uint8_t*) "  Cannot allocate memory ");
+	/* Get the BMP file names on root directory */
+	ubNumberOfFiles = Storage_GetDirectoryBitmapFiles("/Media",
+			pDirectoryFiles);
 
-					while (1) {
-					}
-				}
+    //Chargement de la premiere Zone dans le buffer
+	f_open(&F1, (TCHAR const*) str, FA_READ);
+	f_read(&F1, sector1, 512, (UINT*) &Debut);
+	sprintf((char*) str, "Media/%-11.11s", pDirectoryFiles[0]);
+	Storage_OpenReadFile(uwInternelBuffer, (const char*) str);
+	f_close(&F1);
 
-			}
-		//}
+	//init des variables
+	Pokemon p;
+	Curseur c;
+	c.x = 2;
+	c.y = 12;
+	c.rad = 3;
+	char text1[50] = { };
 
-			/* Get the BMP file names on root directory */
-			ubNumberOfFiles = Storage_GetDirectoryBitmapFiles("/Media",
-					pDirectoryFiles);
-
-			f_open(&F1, (TCHAR const*) str, FA_READ);
-			f_read(&F1, sector1, 512, (UINT*) &Debut);
-			sprintf((char*) str, "Media/%-11.11s", pDirectoryFiles[0]);
-			Storage_OpenReadFile(uwInternelBuffer, (const char*) str);
-			f_close(&F1);
-		//vTaskResume(Play_wavHandle);
-		Pokemon p;
-		Curseur c;
-		c.x = 2;
-		c.y = 12;
-		c.rad = 3;
-		char text1[50] = { };
-		//init des coordonnées de joueur sur la Map 1
-		joueur.x = 2;
-		joueur.y = 11;
-		joueur.sprite = 1;
-		joueur.zone = 1;
-		initZ1 = 0;
-		joueur.zonePred = 1;
-		//a remplacer par une selection du nom sur le PC via UART
-		strcpy(joueur.nom , "NomJoueur");
-		CarteInitZ1();
-		BSP_LCD_SelectLayer(0);
-		BSP_LCD_SetFont(&Font16);
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-
-		sprintf(text1, "Le monde est en danger");
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		//mettre un fondu?
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "Toi seul peux le sauver");
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "Pour cela tu dois rassembler la triforce");
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "Ainsi tu pourras retablir" );
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "l'equilibre dans la force" );
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "Pour t'aider dans ta quete,");
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		sprintf(text1, "choisis un pokemon.");
-		BSP_LCD_DisplayStringAt(0*tailleTuile,7*tailleTuile, (uint8_t*) text1, CENTER_MODE);
-		vTaskDelay(2000);
-
-		SD_Init();
-
-		BSP_AUDIO_IN_SetVolume(20);
-		f_open(&SDFile, musique[0], FA_READ);
-		read_header();
-		Audio_Init(freq_audio);
-		f_lseek(&SDFile, 44);
-		Bloc_Cursor=0;
-		vTaskResume(Play_wavHandle);
-
-		BSP_LCD_DrawBitmap(0,0,(uint8_t*)choix_bmp);
-		//affichage rectangle de texte
-		BSP_LCD_DrawRect(1*tailleTuile, 12*tailleTuile-5, 28*tailleTuile, 5*tailleTuile);
-		BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-		BSP_LCD_FillRect(1*tailleTuile+1, 12*tailleTuile+1-5, 28*tailleTuile-1, 5*tailleTuile-1);
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-
-		uint32_t joystick_h, joystick_v;
-		ADC_ChannelConfTypeDef sConfig = { 0 };
-		sConfig.Rank = ADC_REGULAR_RANK_1;
-		sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+	//init des coordonnées de joueur sur la Map 1
+	joueur.x = 2;
+	joueur.y = 11;
+	joueur.sprite = 1;
+	joueur.zone = 1;
+	initZ1 = 0;
+	joueur.zonePred = 1;
 
 
-		BSP_LCD_SelectLayer(0);
-		BSP_LCD_Clear(LCD_COLOR_WHITE);
-		BSP_LCD_SelectLayer(1);
-		BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);
-		BSP_LCD_SelectLayer(0);
-		BSP_LCD_DrawBitmap(0,0,(uint8_t*)choix_bmp);
-		vTaskDelay(1000);
-	const TickType_t Delai_Atttente = 5000; //5s d'attente maximun
-	/*##-1- Link the SD Card disk I/O driver ###################################*/
+	//initialisation des murs et objets de la carte 1
+	CarteInitZ1();
+
+	//Lancement de la musique
+	SD_Init();
+	Charge_Wave(0);
+	vTaskResume(Play_wavHandle);
+
+	//lancement de l'introduction
+	TextIntro();
+
+	//affichage du fond
+	ClearEcran();
+	BSP_LCD_SelectLayer(0);
+	BSP_LCD_DrawBitmap(0,0,(uint8_t*)choix_bmp);
+
+	AfficheRect();
+
+	vTaskDelay(1000);
+
 	while(1)
 	{
-			//recuperation valeur joystick
-			sConfig.Channel = ADC_CHANNEL_8;
-			HAL_ADC_ConfigChannel(&hadc3, &sConfig);
-			HAL_ADC_Start(&hadc3);
-			while (HAL_ADC_PollForConversion(&hadc3, 100) != HAL_OK)
-				;
-			joystick_v = HAL_ADC_GetValue(&hadc3);
 
-			HAL_ADC_Start(&hadc1);
-			while (HAL_ADC_PollForConversion(&hadc1, 100) != HAL_OK)
-				;
-			joystick_h = HAL_ADC_GetValue(&hadc1);
+		ValJoystick();
 
-			//deplacement du curseur
+		//deplacement du curseur
+		if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 && c.y <= 13){
+			c.y += 1; //bas
 
-			if(joystick_v<1500 && joystick_h<3500 && joystick_h>1500 && c.y <= 13){
-				c.y += 1; //bas
+		}
+		else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 && c.y >= 13){
+			c.y -= 1; //haut
+		}
 
+		AfficheRect();
+		//choix pokemon
+		sprintf(text1, "Bulbizarre le pokemon de type plante?");
+		BSP_LCD_DisplayStringAt(2*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
+		sprintf(text1, "Salameche le pokemon de type feu?");
+		BSP_LCD_DisplayStringAt(2*tailleTuile,13*tailleTuile, (uint8_t*) text1, LEFT_MODE);
+		sprintf(text1, "Carapuce le pokemon de type eau?");
+		BSP_LCD_DisplayStringAt(2*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
+		BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, c.rad);
+
+
+		if(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) == 0){
+
+			switch(c.y){
+			case 12:
+				p = pokeInit(2,5);
+				break;
+			case 13:
+				p = pokeInit(0,5);
+				break;
+			case 14:
+				p = pokeInit(1,5);
 			}
-			else if(joystick_v>3500 && joystick_h<3500 && joystick_h>1500 && c.y >= 13){
-				c.y -= 1; //haut
+			joueur.pokemon1 = p;
+
+			//Soin de l'equipe en cas de game over
+			if(strcmp(joueur.pokemon2.nom,"\0") != 0){
+				joueur.pokemon2.PV = joueur.pokemon2.PVMAX;
 			}
-			//affichage rectangle de texte
-			BSP_LCD_DrawRect(1*tailleTuile, 12*tailleTuile-5, 28*tailleTuile, 5*tailleTuile);
-			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-			BSP_LCD_FillRect(1*tailleTuile+1, 12*tailleTuile+1-5, 28*tailleTuile-1, 5*tailleTuile-1);
-			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-			sprintf(text1, "Bulbizarre le pokemon de type plante?");
-			BSP_LCD_DisplayStringAt(2*tailleTuile,12*tailleTuile, (uint8_t*) text1, LEFT_MODE);
-			sprintf(text1, "Salameche le pokemon de type feu?");
-			BSP_LCD_DisplayStringAt(2*tailleTuile,13*tailleTuile, (uint8_t*) text1, LEFT_MODE);
-			sprintf(text1, "Carapuce le pokemon de type eau?");
-			BSP_LCD_DisplayStringAt(2*tailleTuile,14*tailleTuile, (uint8_t*) text1, LEFT_MODE);
-			BSP_LCD_FillCircle(c.x*tailleTuile-8,c.y*tailleTuile+8, c.rad);
-			//vTaskDelay(50);
-
-			if(HAL_GPIO_ReadPin(BP1_GPIO_Port, BP1_Pin) == 0){
-
-				switch(c.y){
-				case 12:
-					p = pokeInit(2,5);
-					break;
-				case 13:
-					p = pokeInit(0,5);
-					break;
-				case 14:
-					p = pokeInit(1,25);
-				}
-				joueur.pokemon1 = p;
-
-				if(strcmp(joueur.pokemon2.nom,"\0") != 0){
-					joueur.pokemon2.PV = joueur.pokemon2.PVMAX;
-				}
-				if(strcmp(joueur.pokemon3.nom,"\0") != 0){
-					joueur.pokemon3.PV = joueur.pokemon3.PVMAX;
-				}
-				if(strcmp(joueur.pokemon4.nom,"\0") != 0){
-					joueur.pokemon4.PV = joueur.pokemon4.PVMAX;
-				}
-
-				vTaskDelay(1000);
-				vTaskSuspend(Play_wavHandle);
-				f_close(&SDFile);
-				f_open(&SDFile, musique[1], FA_READ);
-				read_header();
-				Audio_Init(freq_audio);
-				f_lseek(&SDFile, 44);
-				Bloc_Cursor=0;
-				vTaskResume(Play_wavHandle);
-				  vTaskResume(task_deplac_pokHandle);
-				  vTaskResume(task_deplacementHandle);
-				  vTaskResume(task_chgZoneHandle);
-				  vTaskResume(task_Affich_PicHandle);
-
-
-				  //xTaskCreate(Affichage_Pic, "Affichage", 2048, NULL, osPriorityNormal, &task_Affich_PicHandle);
-			/*
-				xTaskCreate(deplacement, "deplacement", 256, NULL, osPriorityHigh, &task_deplacementHandle);
-				xTaskCreate(deplac_pok, "deplacement pok", 256, NULL, osPriorityNormal, &task_deplac_pokHandle);
-				xTaskCreate(Affichage_Pic, "Affichage", 2048, NULL, osPriorityNormal, &task_Affich_PicHandle);*/
-				vTaskDelete(task_DemarrageHandle);
+			if(strcmp(joueur.pokemon3.nom,"\0") != 0){
+				joueur.pokemon3.PV = joueur.pokemon3.PVMAX;
+			}
+			if(strcmp(joueur.pokemon4.nom,"\0") != 0){
+				joueur.pokemon4.PV = joueur.pokemon4.PVMAX;
 			}
 
+			vTaskDelay(1000);
+
+			vTaskSuspend(Play_wavHandle);
+			Charge_Wave(1);
+			vTaskResume(Play_wavHandle);
+
+			vTaskResume(task_deplac_pokHandle);
+			vTaskResume(task_deplacementHandle);
+			vTaskResume(task_chgZoneHandle);
+			vTaskResume(task_Affich_PicHandle);
+
+			vTaskDelete(task_DemarrageHandle);
+		}
 
 	osDelay(100);}
   /* USER CODE END Demarrage */
@@ -4258,10 +3748,6 @@ void chgZone(void const * argument)
 				carte[11][13] = 1;
 			}
 
-			/*BSP_LCD_SelectLayer(0);
-			BSP_LCD_Clear(LCD_COLOR_WHITE);
-			BSP_LCD_SelectLayer(1);
-			BSP_LCD_Clear(LCD_COLOR_TRANSPARENT);*/
 			vTaskSuspend(Play_wavHandle);
 			BSP_AUDIO_OUT_Pause();
 			chgEcran(6);
@@ -4269,13 +3755,6 @@ void chgZone(void const * argument)
 			f_lseek(&SDFile, 44+Bloc_Cursor*512);
 			BSP_AUDIO_OUT_Resume();
 			vTaskResume(Play_wavHandle);
-
-			/*
-			sprintf((char*) str, "Media/%-11.11s", pDirectoryFiles[6]);
-			if (Storage_CheckBitmapFile((const char*) str, &uwBmplen) == 0){
-				sprintf((char*) str, "Media/%-11.11s", pDirectoryFiles[6]);
-				Storage_OpenReadFile(uwInternelBuffer, (const char*) str);
-			}*/
 
 			vTaskDelay(250);
 			vTaskResume(task_deplac_pokHandle);
