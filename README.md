@@ -55,6 +55,6 @@ Utilisation des tâches, des fils d'attentes, interruptions ...
 
 ## Possibilités d'amélioration/poursuite du projet
 
-- ajout de contenu (pokemons, dresseurs adverses)
+- Ajout de contenu (pokemons, dresseurs adverses)
 - Ajout d'une communication entre cartes pour faire des combats entre deux joueurs
           
